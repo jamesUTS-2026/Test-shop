@@ -340,6 +340,7 @@ const Checkout = {
     $('#checkoutModal').addEventListener('hidden.bs.modal', () => {
       State.startCo(); // reset
     });
+    this._bindCopyBtn();
   },
 
   open(productId = null) {
@@ -476,15 +477,36 @@ const Checkout = {
 
   /* ── Step 3: send method ── */
   _step3() {
-    const div  = el('div');
-    const intro = el('p', 'text-muted mb-3', 'Choose how to send us your order 🎉');
+    const div   = el('div');
+    const intro = el('p', 'text-muted mb-1', 'Choose how to send your order — the full details will be prepared for you automatically! 🎉');
     intro.style.fontSize = '.85rem';
     div.appendChild(intro);
 
+    // Live order preview card
+    div.appendChild(this._orderPreviewCard());
+
     const methods = [
-      { id:'messenger', icon:'💬', name:'Facebook Messenger', desc:'Chat directly with us', fn: this._sendMessenger },
-      { id:'fb',        icon:'📘', name:'Facebook Page',      desc:'Order posted to our FB page', fn: this._sendFB },
-      { id:'email',     icon:'📧', name:'Email Us',           desc:`Order sent to ${SHOP.contact.email}`, fn: this._sendEmail },
+      {
+        id:   'messenger',
+        icon: '💬',
+        name: 'Facebook Messenger',
+        desc: 'Opens Messenger — message auto-copied, just paste & send',
+        fn:   this._sendMessenger,
+      },
+      {
+        id:   'fb',
+        icon: '📘',
+        name: 'Facebook Page',
+        desc: 'Opens FB page — message auto-copied, just paste & send',
+        fn:   this._sendFB,
+      },
+      {
+        id:   'email',
+        icon: '📧',
+        name: 'Email Us',
+        desc: 'Opens your mail app — subject & full order pre-filled',
+        fn:   this._sendEmail,
+      },
     ];
 
     const wrap = el('div', 'd-flex flex-column gap-2 mb-3');
@@ -492,58 +514,229 @@ const Checkout = {
       const btn = el('button', 'send-method-btn');
       btn.innerHTML = `
         <span class="sm-icon">${m.icon}</span>
-        <div><div class="sm-name">${m.name}</div><div class="sm-desc">${m.desc}</div></div>
-        <span class="ms-auto">→</span>`;
-      btn.addEventListener('click', () => { m.fn.call(this); });
+        <div>
+          <div class="sm-name">${m.name}</div>
+          <div class="sm-desc">${m.desc}</div>
+        </div>
+        <span class="ms-auto send-arrow">→</span>`;
+      btn.addEventListener('click', () => m.fn.call(this));
       wrap.appendChild(btn);
     });
     div.appendChild(wrap);
-    div.appendChild(this._summaryBox());
-    div.appendChild(el('button', 'btn btn-outline-secondary w-100 rounded-pill mt-2',
-      '← Back')).addEventListener('click', () => {
-        State.setCoStep(2); this._renderStep();
-      });
+
+    // Back button
+    const back = el('button', 'btn btn-outline-secondary w-100 rounded-pill mt-1', '← Back');
+    back.style.padding = '.75rem';
+    back.addEventListener('click', () => { State.setCoStep(2); this._renderStep(); });
+    div.appendChild(back);
 
     $('#coBody').appendChild(div);
   },
 
+  /* ── Rich order message builder ── */
   _buildOrderMessage() {
-    const co      = State.getCo();
-    const items   = State.coItems();
-    const grand   = State.coGrandTotal();
-    const d       = co.details;
-    const addonNames = co.addons.map(id => SHOP.addons.find(x => x.id === id)?.label).join(', ') || 'None';
-    return `🎂 NEW ORDER — ${SHOP.name}\n\n`
-      + `👤 Name: ${d.name || 'N/A'}\n📱 Phone: ${d.phone || 'N/A'}\n📦 Address: ${d.addr || 'N/A'}\n\n`
-      + `🛒 Items:\n${items.map(i => `  ${i.emoji} ${i.name} x${i.qty} — ${fmt(i.price * i.qty)}`).join('\n')}\n\n`
-      + `✨ Add-Ons: ${addonNames}\n💰 Grand Total: ${fmt(grand)}\n\n`
-      + `💌 Notes: ${d.notes || 'None'}`;
+    const co    = State.getCo();
+    const items = State.coItems();
+    const d     = co.details;
+    const grand = State.coGrandTotal();
+
+    const itemLines = items.map(i =>
+      `  • ${i.emoji} ${i.name} (x${i.qty}) — ${fmt(i.price * i.qty)}`
+    ).join('\n');
+
+    const addonLines = co.addons.length
+      ? co.addons.map(id => {
+          const a = SHOP.addons.find(x => x.id === id);
+          return a ? `  • ${a.label} — +${fmt(a.price)}` : '';
+        }).filter(Boolean).join('\n')
+      : '  None';
+
+    const hr  = '──────────────────────';
+    const now = new Date().toLocaleString('en-PH', {
+      dateStyle: 'medium', timeStyle: 'short',
+    });
+
+    return [
+      `🎂 NEW ORDER — ${SHOP.name}`,
+      `📅 ${now}`,
+      hr,
+      `👤 CUSTOMER DETAILS`,
+      `   Name    : ${d.name  || 'N/A'}`,
+      `   Phone   : ${d.phone || 'N/A'}`,
+      `   Address : ${d.addr  || 'N/A'}`,
+      hr,
+      `🛒 ORDER ITEMS`,
+      itemLines,
+      hr,
+      `✨ ADD-ONS`,
+      addonLines,
+      hr,
+      `💰 GRAND TOTAL : ${fmt(grand)}`,
+      hr,
+      `💌 MESSAGE / NOTES`,
+      `   ${d.notes || '(none)'}`,
+      hr,
+      `📲 Please confirm this order at your earliest convenience!`,
+      `   ${SHOP.name} · ${SHOP.contact.phone}`,
+    ].join('\n');
   },
 
-  _sendMessenger() {
-    const msg = this._buildOrderMessage();
-    window.open(`${SHOP.contact.messenger}`, '_blank');
-    this._confirmOrder();
+  /* ── Live preview card shown on step 3 ── */
+  _orderPreviewCard() {
+    const msg  = this._buildOrderMessage();
+    const card = el('div', 'order-preview-card mb-3');
+    card.innerHTML = `
+      <div class="opcard-head">
+        <span>📋 Your Order Details</span>
+        <button class="copy-msg-btn" id="copyMsgBtn" title="Copy to clipboard">📋 Copy</button>
+      </div>
+      <pre class="opcard-body" id="orderMsgPre">${this._escHtml(msg)}</pre>`;
+
+    // copy button wired after insertion via event delegation on document
+    card._msg = msg;
+    return card;
   },
-  _sendFB() {
+
+  _escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  },
+
+  /* ── Copy helper — returns promise resolving true/false ── */
+  async _copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fallback for older browsers / non-HTTPS
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0;';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    }
+  },
+
+  /* ── Wire copy button via event delegation ── */
+  _bindCopyBtn() {
+    document.addEventListener('click', async e => {
+      if (!e.target.closest('#copyMsgBtn')) return;
+      const msg = this._buildOrderMessage();
+      const ok  = await this._copyToClipboard(msg);
+      const btn = $('#copyMsgBtn');
+      if (btn) {
+        btn.textContent = ok ? '✅ Copied!' : '❌ Failed';
+        btn.style.background = ok ? 'var(--mint)' : '#e74c3c';
+        setTimeout(() => {
+          if (btn) { btn.textContent = '📋 Copy'; btn.style.background = ''; }
+        }, 2200);
+      }
+    });
+  },
+
+  /* ── Send: Messenger ──
+     Deep-link pre-fills the text box in Messenger web/app.
+     We also copy to clipboard as a reliable fallback.        ── */
+  async _sendMessenger() {
+    const msg = this._buildOrderMessage();
+    await this._copyToClipboard(msg);
+
+    // m.me deep link with pre-filled ref text
+    const pageId = SHOP.contact.messengerPageId || '';
+    const url = pageId
+      ? `https://m.me/${pageId}?text=${encodeURIComponent(msg)}`
+      : `${SHOP.contact.messenger}`;
+
+    window.open(url, '_blank');
+    this._showDispatchConfirm('messenger', msg);
+  },
+
+  /* ── Send: FB Page ──
+     Opens FB page. Copies message to clipboard so user can
+     paste into the chat / visitor post box instantly.        ── */
+  async _sendFB() {
+    const msg = this._buildOrderMessage();
+    await this._copyToClipboard(msg);
     window.open(SHOP.contact.facebook, '_blank');
-    this._confirmOrder();
+    this._showDispatchConfirm('fb', msg);
   },
-  _sendEmail() {
-    const msg = this._buildOrderMessage();
+
+  /* ── Send: Email ──
+     mailto: pre-fills subject + full body.
+     Also copies to clipboard as backup.                      ── */
+  async _sendEmail() {
+    const msg     = this._buildOrderMessage();
+    const subject = `New Order 🎂 — ${SHOP.name}`;
+    await this._copyToClipboard(msg);
     window.open(
-      `mailto:${SHOP.contact.email}?subject=${encodeURIComponent('New Order 🎂 — ' + SHOP.name)}&body=${encodeURIComponent(msg)}`
+      `mailto:${SHOP.contact.email}`
+      + `?subject=${encodeURIComponent(subject)}`
+      + `&body=${encodeURIComponent(msg)}`,
+      '_blank'
     );
-    this._confirmOrder();
+    this._showDispatchConfirm('email', msg);
+  },
+
+  /* ── Dispatch confirm overlay (shows after send button click) ── */
+  _showDispatchConfirm(method, msg) {
+    const icons   = { messenger:'💬', fb:'📘', email:'📧' };
+    const labels  = { messenger:'Messenger', fb:'Facebook Page', email:'Email' };
+    const tipMap  = {
+      messenger: 'Messenger is opening — the order details are <strong>copied to your clipboard</strong>. Just <kbd>Paste</kbd> into the chat and hit Send! 🚀',
+      fb:        'The Facebook page is opening — the order details are <strong>copied to your clipboard</strong>. Paste it into the message box and send! 📘',
+      email:     'Your mail app is opening with the <strong>full order pre-filled</strong>. Just review and hit Send! 📧',
+    };
+
+    // Swap modal body content to confirm screen
+    $('#checkoutModalLabel').innerHTML = `${icons[method]} Sending via ${labels[method]}`;
+    $('#coBody').innerHTML = `
+      <div class="dispatch-confirm">
+        <div class="dispatch-icon">${icons[method]}</div>
+        <h5 class="dispatch-title">Almost done!</h5>
+        <p class="dispatch-tip">${tipMap[method]}</p>
+
+        <div class="dispatch-preview">
+          <div class="dp-label">📋 Order Message <button class="dp-copy-btn" id="dpCopy">Copy Again</button></div>
+          <pre class="dp-pre">${this._escHtml(msg)}</pre>
+        </div>
+
+        <div class="d-flex flex-column gap-2 mt-3">
+          <button class="btn-cyan w-100" id="dpDone" style="border-radius:50px;padding:.8rem;font-size:1rem">
+            ✅ I've Sent My Order!
+          </button>
+          <button class="btn btn-outline-secondary w-100 rounded-pill" id="dpBack" style="padding:.75rem">
+            ← Send via Different Method
+          </button>
+        </div>
+      </div>`;
+
+    // Wire done button
+    $('#dpDone').addEventListener('click', () => this._confirmOrder());
+
+    // Wire back button
+    $('#dpBack').addEventListener('click', () => {
+      State.setCoStep(3);
+      this._renderStep();
+    });
+
+    // Wire copy again
+    $('#dpCopy').addEventListener('click', async () => {
+      const ok = await this._copyToClipboard(msg);
+      const b  = $('#dpCopy');
+      b.textContent = ok ? '✅ Copied!' : '❌ Try again';
+      setTimeout(() => { if ($('#dpCopy')) $('#dpCopy').textContent = 'Copy Again'; }, 2000);
+    });
   },
 
   _confirmOrder() {
-    Toast.show("Order sent! We'll confirm soon 🎉");
+    this._modal.hide();
+    Toast.show("🎉 Order sent! We'll confirm soon — thank you!");
     setTimeout(() => {
-      this._modal.hide();
       State.clearCart();
       Cart.refresh();
-    }, 700);
+    }, 400);
   },
 
   /* ── UI helpers ── */

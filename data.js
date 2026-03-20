@@ -20,6 +20,8 @@ const SHOP = {
     email:     "littleovenn@gmail.com",
     facebook:  "https://www.facebook.com/share/1NjCMN41cH/",
     messenger: "https://www.facebook.com/share/1NjCMN41cH/",
+    // messengerPageId: "nizaslittleoven",  // ← uncomment & set your FB page username for direct Messenger deep-link
+    messengerPageId: "",
   },
 
   // ─── HOMEPAGE HOOK TAGS ─────────────────────────────────────
